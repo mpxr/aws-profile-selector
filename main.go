@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/getlantern/systray"
+	"github.com/skratchdot/open-golang/open"
 )
 
 func main() {
@@ -34,10 +35,15 @@ func onReady() {
 	}
 
 	systray.AddSeparator()
+	mInfo := systray.AddMenuItem("Info", "Info")
 	mQuitOrig := systray.AddMenuItem("Quit", "Quit the app")
 	go func() {
 		<-mQuitOrig.ClickedCh
 		systray.Quit()
+	}()
+	go func() {
+		<-mInfo.ClickedCh
+		open.Run("https://github.com/mpxr/aws-profile-select")
 	}()
 }
 
@@ -55,6 +61,7 @@ func changeDefaultProfile(name string) {
 	// find [default] in credentials
 	// update [default] lines
 	updateDefault(accessKey, secretKey)
+	systray.SetTitle(name)
 
 }
 

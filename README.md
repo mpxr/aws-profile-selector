@@ -1,3 +1,6 @@
 # AWS Profile Select
 
-todo
+# todo
+
+- reduce number of file access
+- display currently set profile on startup and on update
