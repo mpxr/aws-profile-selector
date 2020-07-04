@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -14,6 +13,8 @@ import (
 	"github.com/skratchdot/open-golang/open"
 )
 
+var lines []string
+
 func main() {
 	onExit := func() {
 		fmt.Println("Exiting")
@@ -23,10 +24,15 @@ func main() {
 }
 
 func onReady() {
-	profiles := readProfileNames()
+	c1 := make(chan []string)
 
 	systray.SetTitle("AWS Profile Select")
 	systray.SetTooltip("Choose your AWS profile")
+
+	lines = getCredentialsAsLines()
+	go readProfileNames(c1)
+
+	profiles := <-c1
 
 	for _, profile := range profiles {
 		profileName := profile[1 : len(profile)-1]
@@ -37,14 +43,43 @@ func onReady() {
 	systray.AddSeparator()
 	mInfo := systray.AddMenuItem("Info", "Info")
 	mQuitOrig := systray.AddMenuItem("Quit", "Quit the app")
-	go func() {
-		<-mQuitOrig.ClickedCh
-		systray.Quit()
-	}()
-	go func() {
-		<-mInfo.ClickedCh
-		open.Run("https://github.com/mpxr/aws-profile-select")
-	}()
+
+	for {
+		select {
+		case <-mQuitOrig.ClickedCh:
+			systray.Quit()
+		case <-mInfo.ClickedCh:
+			open.Run("https://github.com/mpxr/aws-profile-select")
+		}
+	}
+}
+
+func readProfileNames(c chan []string) {
+	var profiles []string
+
+	for _, line := range lines {
+		if !strings.Contains(line, "[default]") && strings.Contains(line, "[") && strings.Contains(line, "]") {
+			profiles = append(profiles, line)
+		}
+	}
+
+	c <- profiles
+}
+
+func getCredentialsAsLines() []string {
+	fileName := getFileName()
+
+	var lines []string
+
+	inp, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		log.Fatal(err)
+		return lines
+	}
+
+	lines = strings.Split(string(inp), "\n")
+
+	return lines
 }
 
 func clicked(c *systray.MenuItem, name string) {
@@ -65,62 +100,44 @@ func changeDefaultProfile(name string) {
 
 }
 
-func getProfileFileName() (*(os.File), string) {
+func getFileName() string {
 	user, err := user.Current()
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	fileName := user.HomeDir + "/.aws/credentials"
+	return fileName
+}
+
+func getCredentialsFile() *(os.File) {
+	fileName := getFileName()
 
 	fileToRead, err := os.Open(fileName)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	return fileToRead, fileName
-}
-
-func readProfileNames() []string {
-	fileToRead, _ := getProfileFileName()
-	defer fileToRead.Close()
-
-	var profiles []string
-	scanner := bufio.NewScanner(fileToRead)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if !strings.Contains(line, "[default]") && strings.Contains(line, "[") && strings.Contains(line, "]") {
-			profiles = append(profiles, line)
-		}
-	}
-
-	if error := scanner.Err(); error != nil {
-		log.Fatal(error)
-	}
-
-	return profiles
+	return fileToRead
 }
 
 func getSecret(name string) (string, string) {
-	fileToRead, _ := getProfileFileName()
+	fileToRead := getCredentialsFile()
 	defer fileToRead.Close()
 
 	accessKeyLine, secretKeyLine, err := func() (string, string, error) {
-		found := false
 		var accessKey string
 		var secretKey string
-		scanner := bufio.NewScanner(fileToRead)
-		for scanner.Scan() {
-			if strings.Contains(scanner.Text(), fmt.Sprintf("[%s]", name)) {
-				found = true
-			} else if found && (accessKey == "" || secretKey == "") {
-				if strings.Contains(scanner.Text(), "aws_access_key_id") {
-					accessKey = scanner.Text()
-				} else if strings.Contains(scanner.Text(), "aws_secret_access_key") {
-					secretKey = scanner.Text()
+
+		for i, line := range lines {
+			if strings.Contains(line, fmt.Sprintf("[%s]", name)) {
+				if strings.Contains(lines[i+1], "aws_access_key_id") {
+					accessKey = lines[i+1]
+					secretKey = lines[i+2]
+				} else {
+					accessKey = lines[i+2]
+					secretKey = lines[i+1]
 				}
-			}
-			if found && accessKey != "" && secretKey != "" {
 				return accessKey, secretKey, nil
 			}
 		}
@@ -140,17 +157,6 @@ func getSecret(name string) (string, string) {
 }
 
 func updateDefault(accessKey string, secretKey string) {
-	fileToRead, fileName := getProfileFileName()
-	fileToRead.Close()
-
-	inp, err := ioutil.ReadFile(fileName)
-	if err != nil {
-		log.Fatal(err)
-		return
-	}
-
-	lines := strings.Split(string(inp), "\n")
-
 	for i, line := range lines {
 		if strings.Contains(line, "[default]") {
 			lines[i+1] = fmt.Sprintf("aws_access_key_id = %s", accessKey)
@@ -161,7 +167,8 @@ func updateDefault(accessKey string, secretKey string) {
 
 	output := strings.Join(lines, "\n")
 
-	err = ioutil.WriteFile(fileName, []byte(output), 0644)
+	fileName := getFileName()
+	err := ioutil.WriteFile(fileName, []byte(output), 0644)
 
 	if err != nil {
 		log.Fatalln(err)
