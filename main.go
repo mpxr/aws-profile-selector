@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"os"
 	"os/user"
 	"strings"
 
@@ -24,13 +23,12 @@ func main() {
 }
 
 func onReady() {
+	lines = readCredentials()
 	c1 := make(chan []string)
+	go readProfileNames(c1)
 
 	systray.SetTitle("AWS Profile Select")
 	systray.SetTooltip("Choose your AWS profile")
-
-	lines = getCredentialsAsLines()
-	go readProfileNames(c1)
 
 	profiles := <-c1
 
@@ -66,7 +64,7 @@ func readProfileNames(c chan []string) {
 	c <- profiles
 }
 
-func getCredentialsAsLines() []string {
+func readCredentials() []string {
 	fileName := getFileName()
 
 	var lines []string
@@ -110,21 +108,7 @@ func getFileName() string {
 	return fileName
 }
 
-func getCredentialsFile() *(os.File) {
-	fileName := getFileName()
-
-	fileToRead, err := os.Open(fileName)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return fileToRead
-}
-
 func getSecret(name string) (string, string) {
-	fileToRead := getCredentialsFile()
-	defer fileToRead.Close()
-
 	accessKeyLine, secretKeyLine, err := func() (string, string, error) {
 		var accessKey string
 		var secretKey string
