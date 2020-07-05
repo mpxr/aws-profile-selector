@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -12,7 +11,17 @@ import (
 	"github.com/skratchdot/open-golang/open"
 )
 
-var lines []string
+type credential struct {
+	accessKey string
+	secretKey string
+}
+
+type credentials struct {
+	credentials map[string]credential
+	current     string
+}
+
+var creds credentials
 
 func main() {
 	onExit := func() {
@@ -23,20 +32,7 @@ func main() {
 }
 
 func onReady() {
-	lines = readCredentials()
-	c1 := make(chan []string)
-	go readProfileNames(c1)
-
-	systray.SetTitle("AWS Profile Select")
-	systray.SetTooltip("Choose your AWS profile")
-
-	profiles := <-c1
-
-	for _, profile := range profiles {
-		profileName := profile[1 : len(profile)-1]
-		c := systray.AddMenuItem(profileName, profileName)
-		go clicked(c, profileName)
-	}
+	load()
 
 	systray.AddSeparator()
 	mInfo := systray.AddMenuItem("Info", "Info")
@@ -52,32 +48,57 @@ func onReady() {
 	}
 }
 
-func readProfileNames(c chan []string) {
-	var profiles []string
+func load() {
+	fileName := getFileName()
+	inp, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		panic(err)
+	}
 
-	for _, line := range lines {
-		if !strings.Contains(line, "[default]") && strings.Contains(line, "[") && strings.Contains(line, "]") {
-			profiles = append(profiles, line)
+	creds.credentials = make(map[string]credential)
+
+	lines := strings.Split(string(inp), "\n")
+	for i, line := range lines {
+		trimmedLine := strings.Trim(line, " ")
+		if strings.Contains(trimmedLine, "[") && strings.Contains(trimmedLine, "]") {
+			var cred credential
+
+			line1 := strings.Trim(lines[i+1][strings.Index(lines[i+1], "=")+1:], " ")
+			line2 := strings.Trim(lines[i+2][strings.Index(lines[i+2], "=")+1:], " ")
+
+			if strings.Contains(lines[i+1], "aws_access_key_id") {
+				cred.accessKey = line1
+				cred.secretKey = line2
+			} else if strings.Contains(lines[i+1], "aws_secret_access_key") {
+				cred.accessKey = line2
+				cred.secretKey = line1
+			} else {
+				panic("[profileName] line is not followed by aws_access_key_id and aws_secret_access_key lines.")
+			}
+
+			creds.credentials[trimmedLine] = cred
+
 		}
 	}
 
-	c <- profiles
-}
+	def := creds.credentials["[default]"]
 
-func readCredentials() []string {
-	fileName := getFileName()
-
-	var lines []string
-
-	inp, err := ioutil.ReadFile(fileName)
-	if err != nil {
-		log.Fatal(err)
-		return lines
+	for k, v := range creds.credentials {
+		if k != "[default]" && v.accessKey == def.accessKey && v.secretKey == def.secretKey {
+			creds.current = k
+			break
+		}
 	}
 
-	lines = strings.Split(string(inp), "\n")
+	delete(creds.credentials, "[default]")
 
-	return lines
+	systray.SetTitle(creds.current)
+	systray.SetTooltip("Choose your AWS profile")
+
+	for profile := range creds.credentials {
+		c := systray.AddMenuItem(profile, profile)
+		go clicked(c, profile)
+	}
 }
 
 func clicked(c *systray.MenuItem, name string) {
@@ -88,12 +109,12 @@ func clicked(c *systray.MenuItem, name string) {
 }
 
 func changeDefaultProfile(name string) {
-	// find [<name>] in credentials
-	// read the secrets
-	accessKey, secretKey := getSecret(name)
-	// find [default] in credentials
-	// update [default] lines
-	updateDefault(accessKey, secretKey)
+	cred, found := creds.credentials[name]
+	if !found {
+		log.Fatal(name + " not found in profile")
+	}
+
+	updateDefault(cred.accessKey, cred.secretKey)
 	systray.SetTitle(name)
 
 }
@@ -108,39 +129,8 @@ func getFileName() string {
 	return fileName
 }
 
-func getSecret(name string) (string, string) {
-	accessKeyLine, secretKeyLine, err := func() (string, string, error) {
-		var accessKey string
-		var secretKey string
-
-		for i, line := range lines {
-			if strings.Contains(line, fmt.Sprintf("[%s]", name)) {
-				if strings.Contains(lines[i+1], "aws_access_key_id") {
-					accessKey = lines[i+1]
-					secretKey = lines[i+2]
-				} else {
-					accessKey = lines[i+2]
-					secretKey = lines[i+1]
-				}
-				return accessKey, secretKey, nil
-			}
-		}
-
-		return "", "", errors.New("not found")
-	}()
-
-	if err != nil {
-		log.Fatal("Profile name not found: ", name)
-		panic(err)
-	}
-
-	accessKey := strings.Trim(accessKeyLine[strings.Index(accessKeyLine, "=")+1:], " ")
-	secretKey := strings.Trim(secretKeyLine[strings.Index(secretKeyLine, "=")+1:], " ")
-
-	return accessKey, secretKey
-}
-
 func updateDefault(accessKey string, secretKey string) {
+	lines := readCredentials()
 	for i, line := range lines {
 		if strings.Contains(line, "[default]") {
 			lines[i+1] = fmt.Sprintf("aws_access_key_id = %s", accessKey)
@@ -157,4 +147,20 @@ func updateDefault(accessKey string, secretKey string) {
 	if err != nil {
 		log.Fatalln(err)
 	}
+}
+
+func readCredentials() []string {
+	fileName := getFileName()
+
+	var lines []string
+
+	inp, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		log.Fatal(err)
+		return lines
+	}
+
+	lines = strings.Split(string(inp), "\n")
+
+	return lines
 }
