@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -45,16 +46,22 @@ func onReady() {
 		case <-mQuitOrig.ClickedCh:
 			systray.Quit()
 		case <-mInfo.ClickedCh:
-			open.Run("https://github.com/mpxr/aws-profile-select")
+			open.Run("https://github.com/mpxr/aws-profile-selector")
 		}
 	}
 }
 
 func load() {
-	fileName := getFileName()
+	fileName, err := getFileName()
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
+
 	inp, err := ioutil.ReadFile(fileName)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
+		return
 	}
 
 	// save profile name and credentials in a struct
@@ -83,7 +90,6 @@ func load() {
 			}
 
 			creds.credentials[profileName] = cred
-
 		}
 	}
 
@@ -128,42 +134,52 @@ func clicked(c *systray.MenuItem, name string, menuItems map[string]*systray.Men
 		select {
 		case <-c.ClickedCh:
 			{
-				changeDefaultProfile(name)
+				ok := changeDefaultProfile(name)
+				if ok {
+					// uncheck all menu items
+					for _, v := range menuItems {
+						v.Uncheck()
+					}
 
-				// uncheck all menu items
-				for _, v := range menuItems {
-					v.Uncheck()
+					menuItems[name].Check()
 				}
-
-				menuItems[name].Check()
 			}
 		}
 	}
 }
 
-func changeDefaultProfile(name string) {
+func changeDefaultProfile(name string) bool {
 	cred, found := creds.credentials[name]
 	if !found {
 		log.Fatal(name + " not found in profile")
+		return false
 	}
 
-	updateDefault(cred.accessKey, cred.secretKey)
-	systray.SetTitle(name)
-
+	ok := updateDefault(cred.accessKey, cred.secretKey)
+	if ok {
+		systray.SetTitle(name)
+	}
+	return ok
 }
 
-func getFileName() string {
+func getFileName() (string, error) {
 	user, err := user.Current()
 	if err != nil {
 		log.Fatal(err)
+		return "", errors.New("Cannot retrieve current user")
 	}
 
 	fileName := user.HomeDir + "/.aws/credentials"
-	return fileName
+	return fileName, nil
 }
 
-func updateDefault(accessKey string, secretKey string) {
-	lines := readCredentials()
+func updateDefault(accessKey string, secretKey string) bool {
+	fileName, err := getFileName()
+	if err != nil {
+		return false
+	}
+
+	lines := readCredentials(fileName)
 	for i, line := range lines {
 		if strings.Contains(line, "[default]") {
 			lines[i+1] = fmt.Sprintf("aws_access_key_id = %s", accessKey)
@@ -174,17 +190,17 @@ func updateDefault(accessKey string, secretKey string) {
 
 	output := strings.Join(lines, "\n")
 
-	fileName := getFileName()
-	err := ioutil.WriteFile(fileName, []byte(output), 0644)
+	err = ioutil.WriteFile(fileName, []byte(output), 0644)
 
 	if err != nil {
-		log.Fatalln(err)
+		log.Fatal(err)
+		return false
 	}
+
+	return true
 }
 
-func readCredentials() []string {
-	fileName := getFileName()
-
+func readCredentials(fileName string) []string {
 	var lines []string
 
 	inp, err := ioutil.ReadFile(fileName)
