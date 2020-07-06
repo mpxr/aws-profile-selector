@@ -14,6 +14,7 @@ import (
 type credential struct {
 	accessKey string
 	secretKey string
+	error     string
 }
 
 type credentials struct {
@@ -32,7 +33,6 @@ func main() {
 }
 
 func onReady() {
-	fmt.Println("open")
 	load()
 
 	systray.AddSeparator()
@@ -60,24 +60,28 @@ func load() {
 
 	lines := strings.Split(string(inp), "\n")
 	for i, line := range lines {
-		trimmedLine := strings.Trim(line, " ")
-		if strings.Contains(trimmedLine, "[") && strings.Contains(trimmedLine, "]") {
+		profileName := strings.Trim(line, " ")
+		if strings.Contains(profileName, "[") && strings.Contains(profileName, "]") {
 			var cred credential
 
-			line1 := strings.Trim(lines[i+1][strings.Index(lines[i+1], "=")+1:], " ")
-			line2 := strings.Trim(lines[i+2][strings.Index(lines[i+2], "=")+1:], " ")
-
-			if strings.Contains(lines[i+1], "aws_access_key_id") {
-				cred.accessKey = line1
-				cred.secretKey = line2
-			} else if strings.Contains(lines[i+1], "aws_secret_access_key") {
-				cred.accessKey = line2
-				cred.secretKey = line1
+			if i+1 >= len(lines) || i+2 >= len(lines) {
+				cred.error = fmt.Sprintf("[%s] profile is not followed by aws_access_key_id and aws_secret_access_key lines.", profileName)
 			} else {
-				panic("[profileName] line is not followed by aws_access_key_id and aws_secret_access_key lines.")
+				line1 := strings.Trim(lines[i+1][strings.Index(lines[i+1], "=")+1:], " ")
+				line2 := strings.Trim(lines[i+2][strings.Index(lines[i+2], "=")+1:], " ")
+
+				if strings.Contains(lines[i+1], "aws_access_key_id") {
+					cred.accessKey = line1
+					cred.secretKey = line2
+				} else if strings.Contains(lines[i+1], "aws_secret_access_key") {
+					cred.accessKey = line2
+					cred.secretKey = line1
+				} else {
+					cred.error = fmt.Sprintf("[%s] profile is not followed by aws_access_key_id and aws_secret_access_key lines.", profileName)
+				}
 			}
 
-			creds.credentials[trimmedLine] = cred
+			creds.credentials[profileName] = cred
 
 		}
 	}
@@ -103,6 +107,10 @@ func load() {
 		// check the current profile when rendering it first
 		if profile == creds.current {
 			c.Check()
+		} else {
+			if creds.credentials[profile].error != "" {
+				c.Disable()
+			}
 		}
 		go clicked(c, profile, menuItems)
 	}
@@ -116,8 +124,7 @@ func clicked(c *systray.MenuItem, name string, menuItems map[string]*systray.Men
 				changeDefaultProfile(name)
 
 				// uncheck all menu items
-				for k, v := range menuItems {
-					fmt.Println(k)
+				for _, v := range menuItems {
 					v.Uncheck()
 				}
 
