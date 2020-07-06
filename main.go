@@ -78,10 +78,10 @@ func load() {
 				line1 := strings.Trim(lines[i+1][strings.Index(lines[i+1], "=")+1:], " ")
 				line2 := strings.Trim(lines[i+2][strings.Index(lines[i+2], "=")+1:], " ")
 
-				if strings.Contains(lines[i+1], "aws_access_key_id") {
+				if strings.Contains(lines[i+1], "aws_access_key_id") && strings.Contains(lines[i+2], "aws_secret_access_key") {
 					cred.accessKey = line1
 					cred.secretKey = line2
-				} else if strings.Contains(lines[i+1], "aws_secret_access_key") {
+				} else if strings.Contains(lines[i+1], "aws_secret_access_key") && strings.Contains(lines[i+2], "aws_access_key_id") {
 					cred.accessKey = line2
 					cred.secretKey = line1
 				} else {
@@ -110,7 +110,12 @@ func load() {
 	}
 	sort.Strings(keys)
 
-	systray.SetTitle(creds.current)
+	// if default profile is unknown, just set a placeholder title
+	if creds.current == "" {
+		systray.SetTitle("AWS Profile Selector")
+	} else {
+		systray.SetTitle(creds.current)
+	}
 	systray.SetTooltip("Choose your AWS profile")
 
 	var menuItems = make(map[string]*systray.MenuItem)
