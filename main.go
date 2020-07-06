@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os/user"
+	"sort"
 	"strings"
 
 	"github.com/getlantern/systray"
@@ -56,8 +57,8 @@ func load() {
 		panic(err)
 	}
 
+	// save profile name and credentials in a struct
 	creds.credentials = make(map[string]credential)
-
 	lines := strings.Split(string(inp), "\n")
 	for i, line := range lines {
 		profileName := strings.Trim(line, " ")
@@ -86,22 +87,28 @@ func load() {
 		}
 	}
 
+	// save the currently set profile in the struct
 	def := creds.credentials["[default]"]
-
 	for k, v := range creds.credentials {
 		if k != "[default]" && v.accessKey == def.accessKey && v.secretKey == def.secretKey {
 			creds.current = k
 			break
 		}
 	}
-
 	delete(creds.credentials, "[default]")
+
+	// sort the profile names in alphabetical order
+	var keys = make([]string, 0, len(creds.credentials))
+	for k := range creds.credentials {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
 
 	systray.SetTitle(creds.current)
 	systray.SetTooltip("Choose your AWS profile")
 
 	var menuItems = make(map[string]*systray.MenuItem)
-	for profile := range creds.credentials {
+	for _, profile := range keys {
 		c := systray.AddMenuItem(profile, profile)
 		menuItems[profile] = c
 		// check the current profile when rendering it first
