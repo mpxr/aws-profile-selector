@@ -32,10 +32,11 @@ func main() {
 }
 
 func onReady() {
+	fmt.Println("open")
 	load()
 
 	systray.AddSeparator()
-	mInfo := systray.AddMenuItem("Info", "Info")
+	mInfo := systray.AddMenuItem("Info", "Info on GitHub")
 	mQuitOrig := systray.AddMenuItem("Quit", "Quit the app")
 
 	for {
@@ -95,16 +96,34 @@ func load() {
 	systray.SetTitle(creds.current)
 	systray.SetTooltip("Choose your AWS profile")
 
+	var menuItems = make(map[string]*systray.MenuItem)
 	for profile := range creds.credentials {
 		c := systray.AddMenuItem(profile, profile)
-		go clicked(c, profile)
+		menuItems[profile] = c
+		// check the current profile when rendering it first
+		if profile == creds.current {
+			c.Check()
+		}
+		go clicked(c, profile, menuItems)
 	}
 }
 
-func clicked(c *systray.MenuItem, name string) {
+func clicked(c *systray.MenuItem, name string, menuItems map[string]*systray.MenuItem) {
 	for {
-		<-c.ClickedCh
-		changeDefaultProfile(name)
+		select {
+		case <-c.ClickedCh:
+			{
+				changeDefaultProfile(name)
+
+				// uncheck all menu items
+				for k, v := range menuItems {
+					fmt.Println(k)
+					v.Uncheck()
+				}
+
+				menuItems[name].Check()
+			}
+		}
 	}
 }
 
