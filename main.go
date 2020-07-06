@@ -75,15 +75,17 @@ func load() {
 			if i+1 >= len(lines) || i+2 >= len(lines) {
 				cred.error = fmt.Sprintf("[%s] profile is not followed by aws_access_key_id and aws_secret_access_key lines.", profileName)
 			} else {
-				line1 := strings.Trim(lines[i+1][strings.Index(lines[i+1], "=")+1:], " ")
-				line2 := strings.Trim(lines[i+2][strings.Index(lines[i+2], "=")+1:], " ")
+				line1SecretValue := strings.Trim(lines[i+1][strings.Index(lines[i+1], "=")+1:], " ")
+				line2SecretValue := strings.Trim(lines[i+2][strings.Index(lines[i+2], "=")+1:], " ")
+				line1 := strings.ToLower(lines[i+1])
+				line2 := strings.ToLower(lines[i+2])
 
-				if strings.Contains(lines[i+1], "aws_access_key_id") && strings.Contains(lines[i+2], "aws_secret_access_key") {
-					cred.accessKey = line1
-					cred.secretKey = line2
-				} else if strings.Contains(lines[i+1], "aws_secret_access_key") && strings.Contains(lines[i+2], "aws_access_key_id") {
-					cred.accessKey = line2
-					cred.secretKey = line1
+				if strings.Contains(line1, "aws_access_key_id") && strings.Contains(line2, "aws_secret_access_key") {
+					cred.accessKey = line1SecretValue
+					cred.secretKey = line2SecretValue
+				} else if strings.Contains(line1, "aws_secret_access_key") && strings.Contains(line2, "aws_access_key_id") {
+					cred.accessKey = line2SecretValue
+					cred.secretKey = line1SecretValue
 				} else {
 					cred.error = fmt.Sprintf("[%s] profile is not followed by aws_access_key_id and aws_secret_access_key lines.", profileName)
 				}
